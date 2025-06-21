@@ -1,0 +1,18 @@
+supermarket:
+  strandard_columns:
+    - local_brand_name
+    - global_brand_name
+    - local_supplier_desc
+    - global_supplier_desc
+  rules:
+    - duplicate_row
+    - duplicate_key
+    - barcode_length
+    - date_format
+  
+movie:
+  strandard_columns:
+  rules:
+    - duplicate_row
+    - duplicate_key
+    - date_format
