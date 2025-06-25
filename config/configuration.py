@@ -1,8 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass,field
+from typing import List
 
 @dataclass
 class DatasetConfig:
-    dataflow: str = "liuxin_dataflow_temp"
     project: str = "ds-fra-eu-non-pii-prod"
     dataset: str = "LIUXIN"
     
@@ -11,6 +11,6 @@ class DatasetConfig:
     excluded_table: str = "crf_item_actif_avec_CA_1609_excluded"
 
     dataset_type: str = "supermarket" # or "cinema"
-    key_columns: str = "country_id, barcode"
-    barcode_columns: str = "barcode"
-    date_columns: str = "non_active_date"
+    primary_keys: List[str] = field(default_factory=lambda: ["country_id", "barcode"])
+    barcode_columns: List[str] = field(default_factory=lambda: ["barcode"])
+    date_columns: List[str] = field(default_factory=lambda: ["non_active_date"])

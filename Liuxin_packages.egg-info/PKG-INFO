@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: Liuxin-packages
+Version: 1
+Summary: Package for my Dataflow job.
+Requires-Dist: apache-beam==2.65.0
+Requires-Dist: google-cloud-bigquery==3.34.0
+Requires-Dist: PyYAML==6.0.2
+Requires-Dist: pandas==2.3.0
+Requires-Dist: numpy==2.2.6
+Dynamic: requires-dist
+Dynamic: summary

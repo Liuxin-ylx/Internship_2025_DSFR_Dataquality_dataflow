@@ -1,0 +1,5 @@
+apache-beam==2.65.0
+google-cloud-bigquery==3.34.0
+PyYAML==6.0.2
+pandas==2.3.0
+numpy==2.2.6

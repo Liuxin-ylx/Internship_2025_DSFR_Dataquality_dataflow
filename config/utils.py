@@ -35,7 +35,7 @@ def load_yaml(dataset_type: str, yaml_path: str = "config/dataset.yaml") -> tupl
 
     dataset = data.get(dataset_type, {})
     rules = dataset.get("rules", [])
-    cols = dataset.get("strandard_columns", [])
+    cols = dataset.get("standard_columns", [])
 
     return cols, rules
 

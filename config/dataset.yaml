@@ -1,5 +1,5 @@
 supermarket:
-  strandard_columns:
+  standard_columns:
     - local_brand_name
     - global_brand_name
     - local_supplier_desc
@@ -11,7 +11,7 @@ supermarket:
     - date_format
   
 movie:
-  strandard_columns:
+  standard_columns:
   rules:
     - duplicate_row
     - duplicate_key

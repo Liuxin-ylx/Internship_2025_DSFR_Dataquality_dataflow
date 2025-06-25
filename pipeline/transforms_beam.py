@@ -19,7 +19,7 @@ class InitializeErrorReason(beam.DoFn):
 
 
 class CheckDuplicateRows(beam.PTransform):
-    def __init__(self, all_columns: str):
+    def __init__(self, all_columns: List[str]):
         self.all_columns = all_columns
 
     def expand(self, pcoll):
@@ -40,8 +40,8 @@ class CheckDuplicateRows(beam.PTransform):
             yield records[0]
 
 class CheckDuplicateKeys(beam.PTransform):
-    def __init__(self, key_columns: str):
-        self.key_columns = key_columns
+    def __init__(self, primary_keys: List[str]):
+        self.key_columns = primary_keys
 
     def expand(self, pcoll):
         return (
@@ -61,7 +61,7 @@ class CheckDuplicateKeys(beam.PTransform):
             yield records[0]
 
 class CheckBarcodeLength(beam.DoFn):
-    def __init__(self, barcode_column: str):
+    def __init__(self, barcode_column: List[str]):
         self.barcode_column = barcode_column
 
     def process(self, element: Dict):
@@ -69,12 +69,14 @@ class CheckBarcodeLength(beam.DoFn):
             value = element.get(col)
             if value and len(str(value)) not in (7, 8, 10, 13):
                 element["error_reason"].append("wrong_barcode_length")
-            yield element
+        yield element
                
 
 class CheckDateFormat(beam.DoFn):
-    def __init__(self, date_columns: str):
+    def __init__(self, date_columns: List[str]):
         self.date_columns = date_columns
+        assert isinstance(self.date_columns, list), "date_columns must be a list of field names."
+
 
     def process(self, element: Dict):
         for col in self.date_columns:
@@ -86,7 +88,7 @@ class CheckDateFormat(beam.DoFn):
                         element["error_reason"].append("wrong_date")
                 except Exception:
                     element["error_reason"].append("wrong_date")
-            yield element
+        yield element
 
             
 ################################################################################################
@@ -162,26 +164,26 @@ class ApplyMapping(beam.DoFn):
 
 
 class StandardizeByFrequence(beam.PTransform):
-    def __init__(self, columns: List[str]):
+    def __init__(self, columns: List[str], output_columns: List[str]):
         self.columns = columns
+        self.output_columns = output_columns
 
     def expand(self, pcoll):
         for col in self.columns:
-            pcoll = pcoll | f"AddNormalized_{col}" >> beam.ParDo(AddNormalizedField(col))
+            pcoll = pcoll | f"Add Normalized_{col}" >> beam.ParDo(AddNormalizedField(col))
             
             most_frequent = (
-            pcoll
-            | f"ExtractPairs_{col}" >> beam.ParDo(ExtracOrigNormPair(col))
-            | f"GroupByNorm_{col}" >> beam.GroupByKey()
-            | f"MostFrequent_{col}" >> beam.Map(lambda kv: (kv[0], max(set(kv[1]), key=kv[1].count)))
-        )   
+                pcoll
+                | f"Extract Pairs (Original, Normalized): {col}" >> beam.ParDo(ExtracOrigNormPair(col))
+                | f"Group By Normalized: {col}" >> beam.GroupByKey()
+                | f"Find the Most Frequent Form: {col}" >> beam.Map(lambda kv: (kv[0], max(set(kv[1]), key=kv[1].count)))
+            )   
             mapping = beam.pvalue.AsDict(most_frequent)
 
-            pcoll = (
-                pcoll
-                | f"Apply mapping for {col}" >> beam.ParDo(ApplyMapping(col), mapping)
-                | f"Remove normalized field {col}" >> beam.Map(lambda x: {k: v for k, v in x.items() if not k.startswith(f'_{col}_normalized')})
-            )
+            pcoll = pcoll | f"Apply Mapping to Original Column: {col}" >> beam.ParDo(ApplyMapping(col), mapping)
+
+        pcoll = pcoll | f"Remove all Temp Fields" >> beam.Map(lambda x: {k: v for k, v in x.items() if k in self.output_columns})
+            
         return pcoll
     
 

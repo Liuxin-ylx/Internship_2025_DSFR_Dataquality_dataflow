@@ -30,15 +30,11 @@ from config.utils import do_query_job
 import logging
 logging.getLogger("apache_beam").setLevel(logging.ERROR)
 
-def bq_schema_to_beam(schema, extra_fields=None):
-    beam_schema = []
-    for field in schema:
-        beam_schema.append(f"{field.name}:{field.field_type.lower()}")
-    if extra_fields:
-        for name, typ in extra_fields:
-            beam_schema.append(f"{name}:{typ}")
-    return ",".join(beam_schema)
-
+def bq_schema_to_str(schema, extra=None):
+    s = [f"{f.name}:{f.field_type.lower()}" for f in schema]
+    if extra:
+        s += [f"{name}:{ftype}" for name, ftype in extra]
+    return ",".join(s)
 
 def run():
     cfg = DatasetConfig()
@@ -49,15 +45,25 @@ def run():
     excluded_table = f"{cfg.project}.{cfg.dataset}.{cfg.excluded_table}"
 
     schema = client.get_table(raw_table).schema
-    all_columns = [col.name for col in schema]
+    all_columns = [col.name for col in schema] # List[str]
     std_cols, rules = load_yaml(cfg.dataset_type, yaml_path)
 
     options = PipelineOptions(
-        runner="DirectRunner",
+        runner="DataflowRunner", ### "DirectRunner"
         project=cfg.project,
-        temp_location=f"gs://{cfg.dataflow}/temp",
+        temp_location=f"gs://liuxin_workspace/staging",
         region="europe-west1",
-        job_name=f"QA-{cfg.dataset_type}-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+        job_name=f"qa-{cfg.dataset_type}-{datetime.datetime.now().strftime('%Y-%m-%d-%Hh%Mm')}".lower(),
+        service_account_email="premium-publisher-transfer@ds-fra-eu-non-pii-prod.iam.gserviceaccount.com",
+        num_workers=2,
+        max_num_workers=5,
+        machine_type="e2-standard-2",
+        network="ds-fra-eu-non-pii-prod",
+        subnetwork="https://www.googleapis.com/compute/v1/projects/ds-fra-eu-non-pii-prod/regions/europe-west1/subnetworks/ds-fra-eu-non-pii-prod-01",
+        save_main_session=True,
+        no_use_public_ips=True,
+        experiments=["enable_data_sampling"], ### Enable data sampling
+        setup_file="./setup.py",
     )
 
 
@@ -69,40 +75,51 @@ def run():
     with beam.Pipeline(options=options) as pcoll:
         data = (
             pcoll
-            | "Read dataset from BigQuery" >> beam.io.ReadFromBigQuery(table = clean_table)
-            | "Initialize error reason" >> beam.ParDo(InitializeErrorReason()) 
-            | "Standardize columns" >> StandardizeByFrequence(std_cols)
+            | "Read Dataset from BigQuery" >> beam.io.ReadFromBigQuery(table = clean_table)
+            | "Standardize Contents of Columns" >> StandardizeByFrequence(std_cols,all_columns)
+            | "Initialize Error Reason Column" >> beam.ParDo(InitializeErrorReason()) 
         )
 
         if "duplicate_row" in rules:
-            data = data | "Check duplicate rows" >> CheckDuplicateRows(all_columns)
+            data = data | "Check Duplicate Rows" >> CheckDuplicateRows(all_columns)
         if "duplicate_key" in rules:
-            data = data | "Check duplicate keys" >> CheckDuplicateKeys(cfg.key_columns.split(", "))
+            data = data | "Check duplicate keys" >> CheckDuplicateKeys(cfg.primary_keys)
         if "barcode_length" in rules:
             data = data | "Check barcode length" >> beam.ParDo(CheckBarcodeLength(cfg.barcode_columns))
-        if "barcode_format" in rules:
+        if "date_format" in rules:
             data = data | "Check date format" >> beam.ParDo(CheckDateFormat(cfg.date_columns))
         
-        clean, excluded = data | "Split data into clean and excluded" >> beam.Partition(lambda x, _: 0 if not x["error_reason"] else 1, 2)
+        clean, excluded = data | "Split data into clean and excluded" >> beam.Partition(
+            lambda x, _: 0 if not x.get("error_reason",[]) else 1, 2
+        )
+
+        clean_schema_str = bq_schema_to_str(schema)
+        excluded_schema_str = bq_schema_to_str(schema, [("error_reason", "string")])
+
+        def debug_row(row):
+            print("Row keys:", row.keys())
+            print("Sample row:", row)
+            for k, v in row.items():
+                print(f"{k}: {v} ({type(v)})")
+            return row
 
         print("Update Clean table...")
         clean = clean | "Drop error_reason from clean" >> beam.Map(drop_error_reason)
+        
         clean = clean | "Write clean data to BigQuery" >> beam.io.WriteToBigQuery(
             clean_table,
             #schema="SCHEMA_AUTODETECT",
-            schema=bq_schema_to_beam(schema),
+            schema=clean_schema_str,
             write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
         )
 
         print("Create Excluded table...")
-        excluded_schema = bq_schema_to_beam(
-            schema,
-            extra_fields=[("error_reason", "string")]
-        )
+        excluded = excluded | "DebugCleanSample" >> beam.Map(debug_row)
         excluded = excluded | "Excluded : Convert error_reason list to string" >> beam.Map(stringify_error_reason)
         excluded = excluded | "Write excluded data to BigQuery" >> beam.io.WriteToBigQuery(
                 excluded_table,
-                schema=excluded_schema,
+                #schema="SCHEMA_AUTODETECT",
+                schema = excluded_schema_str,
                 write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
             )
         
