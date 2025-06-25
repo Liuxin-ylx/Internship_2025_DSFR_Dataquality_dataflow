@@ -1,5 +1,6 @@
 # My Dataflow Pipeline
 ## Architecture of the repository
+```
 |--- pipeline
 |---  |  transforms_sql.py
 |---  |  __init__.py
@@ -16,3 +17,4 @@
 |--- README.md
 |--- setup.py
 |--- run_pipeline.py
+```
